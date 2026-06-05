@@ -1,0 +1,179 @@
+CREATE DATABASE IF NOT EXISTS farmtrackpro;
+USE farmtrackpro;
+
+CREATE TABLE tenants (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_code VARCHAR(40) NOT NULL UNIQUE,
+  farm_name VARCHAR(160) NOT NULL,
+  owner_name VARCHAR(120) NOT NULL,
+  phone VARCHAR(30),
+  email VARCHAR(160),
+  status ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NULL,
+  full_name VARCHAR(120) NOT NULL,
+  email VARCHAR(160) NOT NULL UNIQUE,
+  phone VARCHAR(30),
+  password_hash VARCHAR(255) NOT NULL,
+  role ENUM('SUPER_ADMIN','ADMIN') NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  name VARCHAR(160) NOT NULL,
+  unit VARCHAR(40) NOT NULL,
+  price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE customers (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  name VARCHAR(160) NOT NULL,
+  phone VARCHAR(30),
+  email VARCHAR(160),
+  address TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE vendors (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  name VARCHAR(160) NOT NULL,
+  phone VARCHAR(30),
+  email VARCHAR(160),
+  address TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE sales (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  date DATE NOT NULL,
+  customer_id INT NULL,
+  customer_name VARCHAR(160) NOT NULL,
+  item_id INT NULL,
+  item_name VARCHAR(160) NOT NULL,
+  qty DECIMAL(12,2) NOT NULL,
+  unit VARCHAR(40) NOT NULL,
+  price DECIMAL(12,2) NOT NULL,
+  total DECIMAL(12,2) NOT NULL,
+  paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+  balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE purchases (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  date DATE NOT NULL,
+  vendor_id INT NULL,
+  vendor_name VARCHAR(160) NOT NULL,
+  item_id INT NULL,
+  item_name VARCHAR(160) NOT NULL,
+  qty DECIMAL(12,2) NOT NULL,
+  unit VARCHAR(40) NOT NULL,
+  price DECIMAL(12,2) NOT NULL,
+  cost DECIMAL(12,2) NOT NULL,
+  paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+  balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE payments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  date DATE NOT NULL,
+  type ENUM('sale','purchase') NOT NULL,
+  ref_id INT NOT NULL,
+  ref_name VARCHAR(160) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE daybook (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  date DATE NOT NULL,
+  kind ENUM('income','expense') NOT NULL,
+  category VARCHAR(120) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE staff (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  name VARCHAR(160) NOT NULL,
+  phone VARCHAR(30),
+  role_title VARCHAR(100),
+  salary DECIMAL(12,2) NOT NULL DEFAULT 0,
+  join_date DATE,
+  status ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE advances (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  staff_id INT NOT NULL,
+  staff_name VARCHAR(160) NOT NULL,
+  date DATE NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE salaries (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  staff_id INT NOT NULL,
+  staff_name VARCHAR(160) NOT NULL,
+  month CHAR(7) NOT NULL,
+  work_days DECIMAL(6,2) DEFAULT 0,
+  present_days DECIMAL(6,2) DEFAULT 0,
+  gross DECIMAL(12,2) NOT NULL,
+  advance_deducted DECIMAL(12,2) NOT NULL DEFAULT 0,
+  net DECIMAL(12,2) NOT NULL,
+  date DATE NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE attendance (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  staff_id INT NOT NULL,
+  staff_name VARCHAR(160) NOT NULL,
+  date DATE NOT NULL,
+  status ENUM('PRESENT','ABSENT','HALF_DAY','PAID_LEAVE') NOT NULL DEFAULT 'PRESENT',
+  work_days DECIMAL(6,2) NOT NULL DEFAULT 1,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+  UNIQUE KEY uniq_attendance_staff_date (tenant_id, staff_id, date)
+);
+
+INSERT INTO users (tenant_id, full_name, email, phone, password_hash, role)
+VALUES (NULL, 'Super Admin', 'super@farmtrackpro.com', NULL, '$2b$10$whJeyQTETSPDxxvJDpOUI.itsVjSR6T2t4hJV6Xk56g.Is9nQY9/a', 'SUPER_ADMIN');
