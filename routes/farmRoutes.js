@@ -1,6 +1,7 @@
 const express = require("express");
 const db = require("../config/db");
 const auth = require("../middleware/authMiddleware");
+const bcrypt = require("bcrypt");
 
 const router = express.Router();
 
@@ -15,7 +16,9 @@ const tables = {
   staff: "staff",
   advances: "advances",
   salaries: "salaries",
-  attendance: "attendance"
+  attendance: "attendance",
+  sheds: "sheds",
+  egg_collections: "egg_collections"
 };
 
 const cols = {
@@ -29,7 +32,9 @@ const cols = {
   staff: ["name", "phone", "role_title", "salary", "join_date", "status"],
   advances: ["staff_id", "staff_name", "date", "amount", "notes"],
   salaries: ["staff_id", "staff_name", "month", "work_days", "present_days", "gross", "advance_deducted", "net", "date", "notes"],
-  attendance: ["staff_id", "staff_name", "date", "status", "work_days", "notes"]
+  attendance: ["staff_id", "staff_name", "date", "status", "work_days", "notes"],
+  sheds: ["name", "capacity"],
+  egg_collections: ["shed_id", "shed_name", "date", "qty", "notes"]
 };
 
 const money = (v) => Number(v || 0);
@@ -46,7 +51,8 @@ const numericCols = new Set([
   "present_days",
   "gross",
   "advance_deducted",
-  "net"
+  "net",
+  "capacity"
 ]);
 
 function tenantId(req) {
@@ -196,6 +202,54 @@ router.get("/dashboard", auth, async (req, res) => {
       pendingReceivables: sales,
       outstandingPayables: purchases
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.get("/users", auth, async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      "SELECT id, full_name, email, phone, role, created_at FROM users WHERE tenant_id = ? ORDER BY id DESC",
+      [tenantId(req)]
+    );
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post("/users", auth, async (req, res) => {
+  try {
+    const { full_name, email, phone, role, password } = req.body;
+    if (!email || !password || !full_name || !role) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+    
+    const [existing] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+    if (existing.length) {
+      return res.status(400).json({ message: "Email already in use" });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+    const [result] = await db.query(
+      "INSERT INTO users (tenant_id, full_name, email, phone, role, password_hash) VALUES (?, ?, ?, ?, ?, ?)",
+      [tenantId(req), full_name, email, phone || null, role, hash]
+    );
+
+    res.status(201).json({ id: result.insertId, full_name, email, phone, role });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.delete("/users/:id", auth, async (req, res) => {
+  try {
+    if (String(req.params.id) === String(req.user?.userId)) {
+      return res.status(400).json({ message: "Cannot delete your own account" });
+    }
+    await db.query("DELETE FROM users WHERE id = ? AND tenant_id = ?", [req.params.id, tenantId(req)]);
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
