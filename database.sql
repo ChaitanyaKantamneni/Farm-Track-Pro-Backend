@@ -19,7 +19,7 @@ CREATE TABLE users (
   email VARCHAR(160) NOT NULL UNIQUE,
   phone VARCHAR(30),
   password_hash VARCHAR(255) NOT NULL,
-  role ENUM('SUPER_ADMIN','ADMIN') NOT NULL,
+  role ENUM('SUPER_ADMIN','ADMIN','MANAGER') NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
@@ -173,6 +173,27 @@ CREATE TABLE attendance (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
   UNIQUE KEY uniq_attendance_staff_date (tenant_id, staff_id, date)
+);
+
+CREATE TABLE sheds (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  name VARCHAR(160) NOT NULL,
+  capacity INT DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE egg_collections (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL,
+  shed_id INT NULL,
+  shed_name VARCHAR(160),
+  date DATE NOT NULL,
+  qty INT NOT NULL DEFAULT 0,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
 
 INSERT INTO users (tenant_id, full_name, email, phone, password_hash, role)
