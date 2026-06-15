@@ -23,6 +23,9 @@ const farmRoutes =
 require("./routes/farmRoutes");
 app.use("/api/farm", farmRoutes);
 
+const disposalRoutes = require("./routes/disposalRoutes");
+app.use("/api/inventory", disposalRoutes);
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {

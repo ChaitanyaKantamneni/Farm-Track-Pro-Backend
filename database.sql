@@ -198,3 +198,6 @@ CREATE TABLE egg_collections (
 
 INSERT INTO users (tenant_id, full_name, email, phone, password_hash, role)
 VALUES (NULL, 'Super Admin', 'super@farmtrackpro.com', NULL, '$2b$10$whJeyQTETSPDxxvJDpOUI.itsVjSR6T2t4hJV6Xk56g.Is9nQY9/a', 'SUPER_ADMIN');
+
+
+
