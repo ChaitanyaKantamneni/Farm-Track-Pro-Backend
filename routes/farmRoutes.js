@@ -55,10 +55,21 @@ const numericCols = new Set([
   "capacity"
 ]);
 
+/**
+ * Extracts the authenticated tenantId from request user parameters.
+ * @param {Object} req - Express request.
+ * @returns {number|null} Tenant ID snapshot.
+ */
 function tenantId(req) {
   return req.user?.tenantId;
 }
 
+/**
+ * Generic controller to list records of a specific table scoped to the active tenant.
+ * @param {string} table - Target database table.
+ * @param {Object} req - Request.
+ * @param {Object} res - Response.
+ */
 async function list(table, req, res) {
   const [rows] = await db.query(
     `SELECT * FROM ${tables[table]} WHERE tenant_id = ? ORDER BY id DESC`,
@@ -67,6 +78,13 @@ async function list(table, req, res) {
   res.json(rows);
 }
 
+/**
+ * Generic controller to create a resource record scoped to the active tenant.
+ * Automatically computes invoice totals and balances for Sales and Purchases.
+ * @param {string} table - Target database table.
+ * @param {Object} req - Request.
+ * @param {Object} res - Response.
+ */
 async function create(table, req, res) {
   const data = {};
   cols[table].forEach((col) => {
@@ -104,6 +122,12 @@ async function create(table, req, res) {
   });
 }
 
+/**
+ * Generic controller to modify a specific resource record.
+ * @param {string} table - Target database table.
+ * @param {Object} req - Request.
+ * @param {Object} res - Response.
+ */
 async function update(table, req, res) {
   const data = {};
   cols[table].forEach((col) => {
@@ -121,6 +145,12 @@ async function update(table, req, res) {
   res.json({ success: true });
 }
 
+/**
+ * Casts raw request values to appropriate types. Converts empty values to 0 for numeric columns.
+ * @param {string} col - Column name.
+ * @param {*} value - Raw value.
+ * @returns {*} Cleaned/typed value.
+ */
 function cleanValue(col, value) {
   if (numericCols.has(col)) {
     return value === "" || value === null || value === undefined ? 0 : Number(value);
@@ -129,6 +159,13 @@ function cleanValue(col, value) {
   return value === undefined ? null : value;
 }
 
+/**
+ * Generic controller to remove a specific resource record.
+ * Automatically reverses invoice paid balances if a payment registry is deleted.
+ * @param {string} table - Target database table.
+ * @param {Object} req - Request.
+ * @param {Object} res - Response.
+ */
 async function remove(table, req, res) {
   if (table === "payments") {
     await reversePayment(req);
@@ -237,6 +274,13 @@ router.post("/users", auth, async (req, res) => {
       [tenantId(req), full_name, email, phone || null, role, hash]
     );
 
+    if (role === "MANAGER") {
+      await db.query(
+        "INSERT INTO staff (tenant_id, name, phone, role_title, salary, join_date, status) VALUES (?, ?, ?, ?, 0, CURDATE(), 'ACTIVE')",
+        [tenantId(req), full_name, phone || null, "Manager"]
+      );
+    }
+
     res.status(201).json({ id: result.insertId, full_name, email, phone, role });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -248,6 +292,16 @@ router.delete("/users/:id", auth, async (req, res) => {
     if (String(req.params.id) === String(req.user?.userId)) {
       return res.status(400).json({ message: "Cannot delete your own account" });
     }
+
+    const [users] = await db.query("SELECT * FROM users WHERE id = ? AND tenant_id = ?", [req.params.id, tenantId(req)]);
+    if (users.length && users[0].role === "MANAGER") {
+      const user = users[0];
+      await db.query(
+        "UPDATE staff SET status = 'INACTIVE' WHERE tenant_id = ? AND name = ? AND (phone = ? OR phone IS NULL)",
+        [tenantId(req), user.full_name, user.phone || null]
+      );
+    }
+
     await db.query("DELETE FROM users WHERE id = ? AND tenant_id = ?", [req.params.id, tenantId(req)]);
     res.json({ success: true });
   } catch (error) {

@@ -4,7 +4,11 @@ const auth = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-// Generate DISP-YYYY-XXXX
+/**
+ * Autogenerates a unique sequence code format: DISP-YYYY-XXXX (e.g., DISP-2026-0001) for mortality logging.
+ * @param {number} tenantId - Tenant ID filter.
+ * @returns {Promise<string>} Next sequence number.
+ */
 const generateDisposalNumber = async (tenantId) => {
   const year = new Date().getFullYear();
   const prefix = `DISP-${year}-`;
@@ -17,7 +21,10 @@ const generateDisposalNumber = async (tenantId) => {
   return `${prefix}${String(lastNum + 1).padStart(4, "0")}`;
 };
 
-// GET /api/inventory/disposals
+/**
+ * Retrieves all disposal/waste logs (Enterprise plan only).
+ * GET /api/inventory/disposals
+ */
 router.get("/disposals", auth, async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -30,7 +37,11 @@ router.get("/disposals", auth, async (req, res) => {
   }
 });
 
-// POST /api/inventory/disposals
+/**
+ * Creates a new inventory disposal entry.
+ * POST /api/inventory/disposals
+ * Validates available stock for Eggs or Purchase Items before booking the record.
+ */
 router.post("/disposals", auth, async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
@@ -79,7 +90,7 @@ router.post("/disposals", auth, async (req, res) => {
       if (purchases.length === 0) return res.status(404).json({ error: "Purchase record not found." });
       
       const purchaseQty = Number(purchases[0].qty);
-      unitCost = Number(purchases[0].price); // Note: price is unit cost in purchases schema? Wait, schema has price and cost. Assuming price = unit cost.
+      unitCost = Number(purchases[0].price);
 
       // 2. Validate Available Stock for this specific purchase
       const [disposedRow] = await db.query(`SELECT SUM(quantity) as sum FROM inventory_disposals WHERE tenant_id = ? AND source_id = ? AND status = 'ACTIVE'`, [tenantId, source_id]);
@@ -107,7 +118,11 @@ router.post("/disposals", auth, async (req, res) => {
   }
 });
 
-// PUT /api/inventory/disposals/:id
+/**
+ * Modifies an existing active inventory disposal log.
+ * PUT /api/inventory/disposals/:id
+ * Performs real-time inventory checks to verify increased quantity adjustments do not create negative stock.
+ */
 router.put("/disposals/:id", auth, async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
@@ -123,7 +138,7 @@ router.put("/disposals/:id", auth, async (req, res) => {
     
     const disp = existing[0];
     const oldQty = Number(disp.quantity);
-    const diff = qty - oldQty; // additional amount being disposed
+    const diff = qty - oldQty;
     
     if (diff > 0) {
       if (disp.disposal_type === 'EGG') {
@@ -163,7 +178,10 @@ router.put("/disposals/:id", auth, async (req, res) => {
   }
 });
 
-// DELETE (Void) /api/inventory/disposals/:id
+/**
+ * Void/Cancel a disposal record. Soft delete implementation setting status to 'VOID'.
+ * DELETE /api/inventory/disposals/:id
+ */
 router.delete("/disposals/:id", auth, async (req, res) => {
   try {
     await db.query(`UPDATE inventory_disposals SET status = 'VOID', updated_by = ? WHERE id = ? AND tenant_id = ?`, [req.user.id, req.params.id, req.user.tenantId]);
@@ -173,10 +191,12 @@ router.delete("/disposals/:id", auth, async (req, res) => {
   }
 });
 
-// PUT (Restore) /api/inventory/disposals/:id/restore
+/**
+ * Restores a soft-deleted disposal log back to status = 'ACTIVE'.
+ * PUT /api/inventory/disposals/:id/restore
+ */
 router.put("/disposals/:id/restore", auth, async (req, res) => {
   try {
-    // Note: Before restoring, we should conceptually validate stock again, but for V1 we can assume the user knows what they're doing or simply restore. Let's do strict validation.
     const tenantId = req.user.tenantId;
     const disposalId = req.params.id;
     
@@ -215,25 +235,41 @@ router.put("/disposals/:id/restore", auth, async (req, res) => {
   }
 });
 
-// GET /api/inventory/settings
+/**
+ * Retrieves standard settings (egg pricing) and main settings snapshots.
+ * GET /api/inventory/settings
+ */
 router.get("/settings", auth, async (req, res) => {
   try {
-    const [rows] = await db.query(`SELECT * FROM tenant_settings WHERE tenant_id = ?`, [req.user.tenantId]);
-    res.json(rows[0] || { standard_egg_cost: 0 });
+    const [settingsRows] = await db.query(`SELECT * FROM tenant_settings WHERE tenant_id = ?`, [req.user.tenantId]);
+    const [tenantRows] = await db.query(`SELECT logo, farm_name, plan_tier, GREATEST(0, ends_in_days - TIMESTAMPDIFF(DAY, subscription_updated_at, CURRENT_TIMESTAMP)) AS ends_in_days, status FROM tenants WHERE id = ?`, [req.user.tenantId]);
+    const settings = settingsRows[0] || { standard_egg_cost: 0 };
+    const logo = tenantRows[0]?.logo || null;
+    const farmName = tenantRows[0]?.farm_name || null;
+    const planName = tenantRows[0]?.plan_tier || 'Pro';
+    const endsInDays = tenantRows[0]?.ends_in_days !== undefined ? Number(tenantRows[0].ends_in_days) : 30;
+    const status = tenantRows[0]?.status || 'ACTIVE';
+    res.json({ ...settings, logo, farmName, planName, endsInDays, status });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// PUT /api/inventory/settings
+/**
+ * Updates tenant settings configuration (standard egg pricing and logo values).
+ * PUT /api/inventory/settings
+ */
 router.put("/settings", auth, async (req, res) => {
   try {
     const tenantId = req.user.tenantId;
-    const { standard_egg_cost } = req.body;
+    const { standard_egg_cost, logo } = req.body;
     await db.query(
       `INSERT INTO tenant_settings (tenant_id, standard_egg_cost) VALUES (?, ?) ON DUPLICATE KEY UPDATE standard_egg_cost = ?`,
       [tenantId, standard_egg_cost || 0, standard_egg_cost || 0]
     );
+    if (logo !== undefined) {
+      await db.query(`UPDATE tenants SET logo = ? WHERE id = ?`, [logo, tenantId]);
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

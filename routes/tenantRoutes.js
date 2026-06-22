@@ -4,21 +4,25 @@ const router = express.Router();
 
 const {
   createTenant,
-  getTenants
-}
-=
-require(
-  "../controllers/tenantController"
-);
+  getTenants,
+  updateTenantLogo,
+  updateTenantSubscription,
+  getPlatformStats
+} = require("../controllers/tenantController");
 
-router.post(
-  "/",
-  createTenant
-);
+// POST /api/tenants - Creates a new tenant (Super Admin only validation in controller)
+router.post("/", createTenant);
 
-router.get(
-  "/",
-  getTenants
-);
+// GET /api/tenants - Lists all registered tenant instances
+router.get("/", getTenants);
+
+// GET /api/tenants/platform-stats - Aggregates analytical reports and metrics for billing
+router.get("/platform-stats", getPlatformStats);
+
+// PUT /api/tenants/:id/logo - Modifies specific tenant brand image
+router.put("/:id/logo", updateTenantLogo);
+
+// PUT /api/tenants/:id/subscription - Upgrades/Renews subscription plans or changes active status
+router.put("/:id/subscription", updateTenantSubscription);
 
 module.exports = router;
