@@ -247,7 +247,7 @@ router.get("/dashboard", auth, async (req, res) => {
 router.get("/users", auth, async (req, res) => {
   try {
     const [rows] = await db.query(
-      "SELECT id, full_name, email, phone, role, created_at FROM users WHERE tenant_id = ? ORDER BY id DESC",
+      "SELECT id, full_name, email, phone, role, plain_password, created_at FROM users WHERE tenant_id = ? ORDER BY id DESC",
       [tenantId(req)]
     );
     res.json(rows);
@@ -270,8 +270,8 @@ router.post("/users", auth, async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     const [result] = await db.query(
-      "INSERT INTO users (tenant_id, full_name, email, phone, role, password_hash) VALUES (?, ?, ?, ?, ?, ?)",
-      [tenantId(req), full_name, email, phone || null, role, hash]
+      "INSERT INTO users (tenant_id, full_name, email, phone, role, password_hash, plain_password) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [tenantId(req), full_name, email, phone || null, role, hash, password]
     );
 
     if (role === "MANAGER") {
@@ -281,7 +281,86 @@ router.post("/users", auth, async (req, res) => {
       );
     }
 
-    res.status(201).json({ id: result.insertId, full_name, email, phone, role });
+    res.status(201).json({ id: result.insertId, full_name, email, phone, role, plain_password: password });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.put("/users/:id", auth, async (req, res) => {
+  try {
+    const { full_name, email, phone, role, password } = req.body;
+    const { id } = req.params;
+
+    const [existing] = await db.query("SELECT * FROM users WHERE id = ? AND tenant_id = ?", [id, tenantId(req)]);
+    if (!existing.length) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (email && email !== existing[0].email) {
+      const [emailCheck] = await db.query("SELECT id FROM users WHERE email = ? AND id != ?", [email, id]);
+      if (emailCheck.length) {
+        return res.status(400).json({ message: "Email already in use" });
+      }
+    }
+
+    const updates = [];
+    const params = [];
+
+    if (full_name !== undefined) {
+      updates.push("full_name = ?");
+      params.push(full_name);
+    }
+    if (email !== undefined) {
+      updates.push("email = ?");
+      params.push(email);
+    }
+    if (phone !== undefined) {
+      updates.push("phone = ?");
+      params.push(phone);
+    }
+    if (role !== undefined) {
+      updates.push("role = ?");
+      params.push(role);
+    }
+    if (password) {
+      const hash = await bcrypt.hash(password, 10);
+      updates.push("password_hash = ?");
+      params.push(hash);
+      updates.push("plain_password = ?");
+      params.push(password);
+    }
+
+    if (updates.length > 0) {
+      params.push(id, tenantId(req));
+      await db.query(
+        `UPDATE users SET ${updates.join(", ")} WHERE id = ? AND tenant_id = ?`,
+        params
+      );
+      
+      // If full_name or phone is updated and user is a MANAGER, update staff table as well
+      if (existing[0].role === "MANAGER") {
+        const staffUpdates = [];
+        const staffParams = [];
+        if (full_name !== undefined) {
+          staffUpdates.push("name = ?");
+          staffParams.push(full_name);
+        }
+        if (phone !== undefined) {
+          staffUpdates.push("phone = ?");
+          staffParams.push(phone);
+        }
+        if (staffUpdates.length > 0) {
+          staffParams.push(tenantId(req), existing[0].full_name, existing[0].phone || null);
+          await db.query(
+            `UPDATE staff SET ${staffUpdates.join(", ")} WHERE tenant_id = ? AND name = ? AND (phone = ? OR phone IS NULL)`,
+            staffParams
+          );
+        }
+      }
+    }
+
+    res.json({ success: true, message: "User updated successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
