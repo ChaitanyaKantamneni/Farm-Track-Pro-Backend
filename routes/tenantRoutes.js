@@ -5,6 +5,7 @@ const router = express.Router();
 const {
   createTenant,
   getTenants,
+  updateTenant,
   updateTenantLogo,
   updateTenantSubscription,
   getPlatformStats
@@ -15,6 +16,9 @@ router.post("/", createTenant);
 
 // GET /api/tenants - Lists all registered tenant instances
 router.get("/", getTenants);
+
+// PUT /api/tenants/:id - Modifies specific tenant details and resets admin password
+router.put("/:id", updateTenant);
 
 // GET /api/tenants/platform-stats - Aggregates analytical reports and metrics for billing
 router.get("/platform-stats", getPlatformStats);

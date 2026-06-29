@@ -78,9 +78,10 @@ exports.createTenant = async (req, res) => {
         email,
         phone,
         password_hash,
-        role
+        role,
+        plain_password
       )
-      VALUES (?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?)
       `,
       [
         tenantId,
@@ -88,7 +89,8 @@ exports.createTenant = async (req, res) => {
         admin_email,
         admin_phone,
         passwordHash,
-        "ADMIN"
+        "ADMIN",
+        defaultPassword
       ]
     );
 
@@ -148,12 +150,16 @@ exports.createTenant = async (req, res) => {
 exports.getTenants = async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT id, tenant_code, farm_name, owner_name, phone, email, status, logo,
-             plan_tier AS plan, billing_status AS billingStatus, 
-             GREATEST(0, ends_in_days - TIMESTAMPDIFF(DAY, subscription_updated_at, CURRENT_TIMESTAMP)) AS endsInDays,
-             subscription_updated_at AS subscriptionUpdatedAt, created_at AS createdAt
-      FROM tenants
-      ORDER BY id DESC
+      SELECT t.id, t.tenant_code, t.farm_name, t.owner_name, t.phone, t.email, t.status, t.logo,
+             t.plan_tier AS plan, t.billing_status AS billingStatus, 
+             GREATEST(0, t.ends_in_days - TIMESTAMPDIFF(DAY, t.subscription_updated_at, CURRENT_TIMESTAMP)) AS endsInDays,
+             t.subscription_updated_at AS subscriptionUpdatedAt, t.created_at AS createdAt,
+             u.full_name AS admin_name, u.email AS admin_email, u.phone AS admin_phone, u.plain_password AS admin_password
+      FROM tenants t
+      LEFT JOIN users u ON u.id = (
+        SELECT id FROM users WHERE tenant_id = t.id AND role = 'ADMIN' ORDER BY id ASC LIMIT 1
+      )
+      ORDER BY t.id DESC
     `);
     
     // Fetch all subscription history records
@@ -338,3 +344,89 @@ exports.getPlatformStats = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+/**
+ * Modifies specific tenant details and optionally resets tenant admin password.
+ * PUT /api/tenants/:id
+ */
+exports.updateTenant = async (req, res) => {
+  let connection;
+  try {
+    const { id } = req.params;
+    const {
+      tenant_code,
+      farm_name,
+      owner_name,
+      phone,
+      email,
+      admin_name,
+      admin_email,
+      admin_phone,
+      admin_password
+    } = req.body;
+
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    // 1. Update tenants table
+    await connection.query(
+      `UPDATE tenants
+       SET tenant_code = ?, farm_name = ?, owner_name = ?, phone = ?, email = ?
+       WHERE id = ?`,
+      [tenant_code, farm_name, owner_name, phone || null, email || null, id]
+    );
+
+    // 2. Find and update the tenant admin user
+    const [admins] = await connection.query(
+      "SELECT id FROM users WHERE tenant_id = ? AND role = 'ADMIN' LIMIT 1",
+      [id]
+    );
+
+    if (admins.length > 0) {
+      const adminId = admins[0].id;
+      const userUpdates = [];
+      const userParams = [];
+
+      if (admin_name !== undefined) {
+        userUpdates.push("full_name = ?");
+        userParams.push(admin_name);
+      }
+      if (admin_email !== undefined) {
+        userUpdates.push("email = ?");
+        userParams.push(admin_email);
+      }
+      if (admin_phone !== undefined) {
+        userUpdates.push("phone = ?");
+        userParams.push(admin_phone);
+      }
+      if (admin_password) {
+        const hash = await bcrypt.hash(admin_password, 10);
+        userUpdates.push("password_hash = ?");
+        userParams.push(hash);
+        userUpdates.push("plain_password = ?");
+        userParams.push(admin_password);
+      }
+
+      if (userUpdates.length > 0) {
+        userParams.push(adminId);
+        await connection.query(
+          `UPDATE users SET ${userUpdates.join(", ")} WHERE id = ?`,
+          userParams
+        );
+      }
+    }
+
+    await connection.commit();
+    res.json({ success: true, message: "Tenant details updated successfully." });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+    }
+    res.status(500).json({ success: false, message: error.message });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+};
+
